@@ -18,36 +18,6 @@ import (
 
 const PORT = ":8080"
 
-var users = map[int]entity.User{
-	1: {
-		Id:        1,
-		Username:  "Delon",
-		Email:     "email",
-		Password:  "password",
-		Age:       13,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	},
-	2: {
-		Id:        2,
-		Username:  "Chandra",
-		Email:     "email",
-		Password:  "password",
-		Age:       123,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	},
-	3: {
-		Id:        3,
-		Username:  "Bambang",
-		Email:     "email",
-		Password:  "password",
-		Age:       18,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	},
-}
-
 func dbConn() *sql.DB {
 	db, err := sql.Open("mysql", "root:admin123@tcp(127.0.0.1:3306)/hello")
 	if err != nil {
