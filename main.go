@@ -17,23 +17,29 @@ import (
 )
 
 const PORT = ":8080"
+const USERNAME = "bambang111"
+const PASSWORD = "bambangs"
 
 func dbConn() *sql.DB {
-	db, err := sql.Open("mysql", "root:admin123@tcp(127.0.0.1:3306)/hello")
+	db, err := sql.Open("mysql", "root:admin123@tcp(127.0.0.1:3306)/hello?parseTime=true")
 	if err != nil {
 		panic(err)
 	}
 	return db
 }
 
-func main() {
+var db *sql.DB
 
+func main() {
+	db = dbConn()
+	defer db.Close()
 	r := mux.NewRouter()
 	r.HandleFunc("/", greet)
 	r.HandleFunc("/users", UserHandler)
 	r.HandleFunc("/users/{Id}", UserHandler)
 	r.HandleFunc("/users/{Id}", UserHandler)
-
+	r.HandleFunc("/users-url", GetUserFromAPI)
+	r.Use(MiddlewareAuth)
 	http.Handle("/", r)
 	http.ListenAndServe(PORT, nil)
 }
@@ -86,7 +92,6 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetUserById(w http.ResponseWriter, r *http.Request, id int) {
-	db := dbConn()
 	var user entity.User
 	query := "SELECT ID, USERNAME, PASSWORD, EMAIL, AGE FROM USER WHERE ID = ?"
 	row := db.QueryRow(query, id)
@@ -94,13 +99,11 @@ func GetUserById(w http.ResponseWriter, r *http.Request, id int) {
 	if err != nil {
 		panic(err)
 	}
-	db.Close()
 	jsonData, _ := json.Marshal(user)
 	w.Write(jsonData)
 }
 
 func GetAllUser(w http.ResponseWriter, r *http.Request) {
-	db := dbConn()
 
 	results := []entity.User{}
 	data, err := db.Query("SELECT id, username, password, email, age FROM USER")
@@ -115,13 +118,11 @@ func GetAllUser(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, user)
 	}
-	defer db.Close()
 	test, _ := json.Marshal(results)
 	w.Write(test)
 }
 
 func DeleteUser(w http.ResponseWriter, r *http.Request, id int) {
-	db := dbConn()
 	query := "DELETE FROM USER WHERE id = ?"
 	ctx, cancelfunc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelfunc()
@@ -132,7 +133,6 @@ func DeleteUser(w http.ResponseWriter, r *http.Request, id int) {
 	}
 	res.LastInsertId()
 	res.RowsAffected()
-	defer db.Close()
 	w.Write([]byte("User deleted successfully"))
 }
 
@@ -143,18 +143,14 @@ func AddUser(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("error decoding json body"))
 		return
 	} else {
-		db := dbConn()
 		query := "INSERT INTO USER (username, password, email, age, createdat, updatedat) VALUES(?,?,?,?,?,?)"
 		ctx, cancelfunc := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelfunc()
 		stmt, err := db.PrepareContext(ctx, query)
-		res, err := stmt.ExecContext(ctx, user.Username, user.Password, user.Email, user.Age, time.Now(), nil)
+		_, err = stmt.ExecContext(ctx, user.Username, user.Password, user.Email, user.Age, time.Now(), nil)
 		if err != nil {
 			log.Fatal(err)
 		}
-		res.LastInsertId()
-		res.RowsAffected()
-		defer db.Close()
 		w.Write([]byte("User added successfully"))
 	}
 }
@@ -166,22 +162,75 @@ func UpdateUser(w http.ResponseWriter, r *http.Request, id int) {
 		w.Write([]byte("error decoding json body"))
 		return
 	}
-	db := dbConn()
 	query := "update user set Username = ?, Password = ?, Email = ?, Age = ?, UpdatedAt = ? where Id = ?"
 	ctx, cancelfunc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelfunc()
-	stmt, err := db.PrepareContext(ctx, query)
-	if err != nil {
-		fmt.Println("Error 1")
+	if stmt, err := db.PrepareContext(ctx, query); err != nil {
+		log.Fatal(err)
+		if _, err := stmt.ExecContext(ctx, temp.Username, temp.Password, temp.Email, temp.Age, time.Now(), id); err != nil {
+			log.Fatal(err)
+		}
 	}
-	res, err := stmt.ExecContext(ctx, temp.Username, temp.Password, temp.Email, temp.Age, time.Now(), id)
-	if err != nil {
-		// log.Fatal(err)
-		fmt.Println("Error 2")
-	}
-	res.LastInsertId()
-	res.RowsAffected()
-	defer db.Close()
+
 	w.Write([]byte("User updated successfuly"))
 
+}
+
+func GetUserFromAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Accept", "application/json")
+	w.Header().Add("Content-Type", "application/json")
+	client := &http.Client{}
+	if r.Method == "GET" {
+		req, err := http.Get("https://random-data-api.com/api/users/random_user?size=10")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		resp, err := client.Do(req.Request)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		defer resp.Body.Close()
+		type Coordinates struct {
+			Latitude  float64 `json:"lat"`
+			Longitude float64 `json:"lng"`
+		}
+
+		type Address struct {
+			City          string      `json:"city"`
+			StreetName    string      `json:"street_name"`
+			StreetAddress string      `json:"street_address"`
+			ZipCode       string      `json:"zip_code"`
+			State         string      `json:"state"`
+			Country       string      `json:"country"`
+			Coordinates   Coordinates `json:"coordinates"`
+		}
+		type User struct {
+			Id         int      `json:"id"`
+			Uid        string   `json:"uid"`
+			First_name string   `json:"first_name"`
+			Last_name  string   `json:"last_name"`
+			Username   string   `json:"username"`
+			Address    *Address `json:"address"`
+		}
+
+		var user []User
+		json.NewDecoder(resp.Body).Decode(&user)
+		jsonData, err := json.Marshal(&user)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		w.Write(jsonData)
+	}
+}
+
+func MiddlewareAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if inputUsername, inputPassword, ok := r.BasicAuth(); !ok || inputUsername != USERNAME || inputPassword != PASSWORD {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("Unauthorized request"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
